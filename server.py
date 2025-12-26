@@ -1,37 +1,48 @@
 from flask import Flask, request, jsonify
-from datetime import datetime, timezone
-import os
+from datetime import datetime
 
 app = Flask(__name__)
+
+# In-memory event store
 EVENTS = []
 
-def now():
-    return datetime.now(timezone.utc).isoformat()
-
-@app.get("/")
+@app.route("/")
 def home():
     return jsonify({
         "status": "ArivuPro Monitor OK",
-        "time": now()
+        "time": datetime.utcnow().isoformat()
     })
 
-@app.post("/ingest")
-def ingest():
-    data = request.get_json(force=True, silent=True) or {}
-    EVENTS.append({
-        "ts": now(),
-        "branch": data.get("branch", ""),
-        "room": data.get("room", ""),
-        "events": data.get("events", []),
-        "issues": data.get("issues", [])
-    })
-    return jsonify({"ok": True, "count": len(EVENTS)})
+@app.route("/report", methods=["POST"])
+def report():
+    data = request.get_json(force=True, silent=True)
 
-@app.get("/events")
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    event = {
+        "branch": data.get("branch", "Unknown"),
+        "room": data.get("room", "Unknown"),
+        "events": [{
+            "severity": data.get("severity", "WARNING"),
+            "message": data.get("message", "")
+        }],
+        "issues": [],
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+    EVENTS.append(event)
+
+    # Keep only last 100 events
+    if len(EVENTS) > 100:
+        EVENTS.pop(0)
+
+    return jsonify({"status": "ok"})
+
+@app.route("/events", methods=["GET"])
 def events():
-    return jsonify(EVENTS[-50:])
+    return jsonify(EVENTS)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
 
